@@ -52,29 +52,41 @@ tags:
 - 判断平台偏好：Hermes / Claude / OpenClaw / 通用
 - 非英语查询：同时搜英文原文 + 中文
 
-### 第二步：多源并行检索
+### 第二步：多源并行检索（8大来源）
 
 ```bash
-# Hermes Skills Hub（官方市场，79个官方skill）
+# 1. Hermes Skills Hub（官方市场，79个官方skill）
 hermes skills search "<query>" 2>/dev/null
 
-# OpenClaw ClawHub（语义检索，需网络）
+# 2. OpenClaw ClawHub（语义检索，需网络）
 curl -s "https://clawhub.ai/api/v1/search?q=<url-encoded-query>&limit=10" 2>/dev/null | jq '.[] | {slug, displayName, summary, score}'
 
-# gql-skills 索引（内部skill总览）
+# 3. gql-skills 索引（内部skill总览）
 grep -i "<keyword>" ~/repos/gql-skills/README.md ~/repos/gql-skills/SKILL.md 2>/dev/null
 
-# Antigravity awesome-skills（1459个skill的结构化目录）
+# 4. Antigravity awesome-skills（1459个skill的结构化目录）
 curl -s "https://raw.githubusercontent.com/sickn33/antigravity-awesome-skills/main/skills_index.json" 2>/dev/null | jq ".[] | select(.name | test(\"<query>\"; \"i\")) | {name, description, tags}" 2>/dev/null
 
-# ComposioHQ awesome-claude-skills（1000+官方skill目录）
+# 5. ComposioHQ awesome-claude-skills（1000+skill）
 curl -s "https://raw.githubusercontent.com/ComposioHQ/awesome-claude-skills/main/README.md" 2>/dev/null | grep -A3 "<query>"
 
-# VoltAgent awesome-agent-skills
-curl -s "https://raw.githubusercontent.com/VoltAgent/awesome-agent-skills/main/README.md" 2>/dev/null | grep -A2 "<query>"
+# 6. obra/superpowers（14个核心skills，质量最高）
+# https://github.com/obra/superpowers/tree/main/skills
+# brainstorm/subagent-driven-dev/test-driven-development/systematic-debugging/writing-plans/...
+curl -s "https://raw.githubusercontent.com/obra/superpowers/main/skills/<skill-name>/SKILL.md" 2>/dev/null
+
+# 7. Fission-AI/OpenSpec（43个spec-driven开发技能）
+# https://github.com/Fission-AI/OpenSpec/tree/main/openspec/specs
+# cli-spec/schema-validation/workspace-foundation/telemetry/opsx-archive-skill/...
+curl -s "https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/openspec/specs/<spec-name>/SKILL.md" 2>/dev/null
+
+# 8. affaan-m/everything-claude-code（228个skill + 60个agent）
+# https://github.com/affaan-m/everything-claude-code/tree/main/skills
+# python-reviewer/go-reviewer/tdd-guide/security-reviewer/...
+curl -s "https://raw.githubusercontent.com/affaan-m/everything-claude-code/main/skills/<skill-name>/SKILL.md" 2>/dev/null
 ```
 
-> **clawhub.sh 已下线**：之前用 clawhub mirror 的方式已废弃，直接用 `https://clawhub.ai/api/v1/search` 的公开 API（无需 token，120 reads/min）。
+> **clawhub.sh 已下线**：改用 `https://clawhub.ai/api/v1/search` 公开 API（无需 token，120 reads/min）。
 
 ### 第三步：去重与合并
 
@@ -84,8 +96,11 @@ curl -s "https://raw.githubusercontent.com/VoltAgent/awesome-agent-skills/main/R
 |------|--------|------|
 | Hermes 官方 | ⭐⭐⭐ | Nous Research 出品，质量最稳定 |
 | gql-skills | ⭐⭐⭐ | 内部精选，真实可用 |
+| obra/superpowers | ⭐⭐⭐ | 核心方法论，PR 94%拒收率，质量最高 |
+| affaan-m/everything-claude-code | ⭐⭐ | 228 skill + 60 agent，规模最大 |
+| Fission-AI/OpenSpec | ⭐⭐ | spec-driven 开发，架构严谨 |
 | ClawHub（活跃度高）| ⭐⭐ | 有统计数据 |
-| Antigravity | ⭐⭐ | 数量最大，质量参差 |
+| Antigravity | ⭐ | 1459 skill，数量最大，质量参差 |
 | 其他 awesome 列表 | ⭐ | 需人工核实 |
 
 去重规则：
@@ -177,8 +192,11 @@ hermes skills install <identifier>
 
 | 平台 | 链接格式 |
 |------|---------|
-| ClawHub | `https://clawhub.ai/<owner>/<slug>` |
 | Hermes Skills Hub | `https://hermes-agent.nousresearch.com/docs/reference/skills-catalog` |
+| ClawHub | `https://clawhub.ai/<owner>/<slug>` |
 | gql-skills | `https://github.com/relunctance/gql-skills` |
+| obra/superpowers | `https://github.com/obra/superpowers/tree/main/skills` |
+| Fission-AI/OpenSpec | `https://github.com/Fission-AI/OpenSpec/tree/main/openspec/specs` |
+| affaan-m/everything-claude-code | `https://github.com/affaan-m/everything-claude-code/tree/main/skills` |
 | Antigravity | `https://github.com/sickn33/antigravity-awesome-skills` |
 | Composio | `https://github.com/ComposioHQ/awesome-claude-skills` |
