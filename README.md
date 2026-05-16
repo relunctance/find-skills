@@ -26,6 +26,11 @@ tags:
   - cross-platform
 ---
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![version](https://img.shields.io/badge/version-1.0.0-green.svg)](#)
+[![platforms](https://img.shields.io/badge/platforms-hermes%20%7C%20claude%20%7C%20openclaw-blue.svg)](#)
+[![category](https://img.shields.io/badge/category-Infrastructure-blue.svg)](#)
+
 # find-skills
 
 > 全平台 AI Skill 智能检索引擎 — 去重 · 精准匹配 · Health Score 排序
