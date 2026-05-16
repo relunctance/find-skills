@@ -52,7 +52,7 @@ tags:
 - 判断平台偏好：Hermes / Claude / OpenClaw / 通用
 - 非英语查询：同时搜英文原文 + 中文
 
-### 第二步：多源并行检索（8大来源）
+### 第二步：多源并行检索（9大来源）
 
 ```bash
 # 1. Hermes Skills Hub（官方市场，79个官方skill）
@@ -84,6 +84,176 @@ curl -s "https://raw.githubusercontent.com/Fission-AI/OpenSpec/main/openspec/spe
 # https://github.com/affaan-m/everything-claude-code/tree/main/skills
 # python-reviewer/go-reviewer/tdd-guide/security-reviewer/...
 curl -s "https://raw.githubusercontent.com/affaan-m/everything-claude-code/main/skills/<skill-name>/SKILL.md" 2>/dev/null
+
+# 9. skill-market 本地索引（427个SKILL.md，基于 marketplace.zip）
+# 自动安装：检测到未安装时自动 clone + 下载完整 zip + 解压
+MARKETPLACE_REPO="$HOME/repos/skill-market"
+MARKETPLACE_DIR="$HOME/repos/skill-market/data"
+MARKETPLACE_ZIP="$MARKETPLACE_DIR/marketplace.zip"
+MARKETPLACE_EXTRACT="$MARKETPLACE_DIR/marketplace"
+
+if [ ! -d "$MARKETPLACE_REPO" ]; then
+    echo "[skill-market] 首次使用，正在自动安装..."
+    git clone https://github.com/relunctance/skill-market.git "$MARKETPLACE_REPO" 2>/dev/null && \
+    bash "$MARKETPLACE_REPO/scripts/setup.sh" > /dev/null 2>&1
+fi
+
+if [ ! -f "$MARKETPLACE_ZIP" ]; then
+    echo "[skill-market] 正在下载 marketplace.zip（15MB）..."
+    mkdir -p "$MARKETPLACE_DIR"
+    curl -sL "https://download.codebuddy.cn/plugin-marketplace/codebuddy-plugins-official.zip" -o "$MARKETPLACE_ZIP"
+fi
+
+if [ ! -d "$MARKETPLACE_EXTRACT" ]; then
+    echo "[skill-market] 正在解压..."
+    unzip -q "$MARKETPLACE_ZIP" -d "$MARKETPLACE_EXTRACT"
+fi
+
+# 解压后用 grep -rni 搜索 + 解析 frontmatter + 标注匹配位置
+QUERY="<query>"
+echo ""
+echo "## skill-market 检索结果: $QUERY"
+echo ""
+
+# 搜索（grep -rni 返回 文件:行号:上下文）
+TMPRESULTS=$(mktemp)
+> "$TMPRESULTS"
+
+grep -rni "$QUERY" "$MARKETPLACE_EXTRACT" --include="SKILL.md" 2>/dev/null | while IFS=: read -r file linenum context; do
+    # 按文件去重（只处理一次）
+    if ! grep -q "^FILE:$file" "$TMPRESULTS" 2>/dev/null; then
+        echo "FILE:$file" >> "$TMPRESULTS"
+        
+        # 解析 frontmatter
+        NAME=$(grep "^name:" "$file" 2>/dev/null | head -1 | cut -d: -f2- | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//')
+        DESC=$(grep "^description:" "$file" 2>/dev/null | head -1 | cut -d: -f2- | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//')
+        
+        # 分类
+        case "$file" in
+            *superpowers/skills/*) SOURCE="superpowers" ;;
+            *scientific-skills/*) SOURCE="scientific-skills" ;;
+            *plugins/*) SOURCE="official" ;;
+            *) SOURCE="other" ;;
+        esac
+        
+        # 标注匹配位置（name/description/正文）
+        if echo "$NAME" | grep -qi "$QUERY"; then
+            MATCH="name"
+        elif echo "$DESC" | grep -qi "$QUERY"; then
+            MATCH="description"
+        else
+            MATCH="正文"
+        fi
+        
+        # 简化路径
+        DISPLAY=$(echo "$file" | sed "s|$MARKETPLACE_EXTRACT/||" | sed 's|/SKILL.md||')
+        echo "$SOURCE|$NAME|$MATCH|${DESC:0:70}...|$DISPLAY" >> "$TMPRESULTS"
+    fi
+done
+
+# 搜索结果输出给 LLM 翻译和总结
+# 格式：原始 JSON，便于 LLM 解析
+echo ""
+echo "## skill-market 检索结果: $QUERY"
+echo ""
+
+# 生成 JSON 格式结果
+TMPRESULTS=$(mktemp)
+echo "[" > "$TMPRESULTS"
+
+FIRST=true
+grep -rni "$QUERY" "$MARKETPLACE_EXTRACT" --include="SKILL.md" 2>/dev/null | while IFS=: read -r file linenum context; do
+    if ! grep -q "\"file\":\"$file\"" "$TMPRESULTS" 2>/dev/null; then
+        NAME=$(grep "^name:" "$file" 2>/dev/null | head -1 | cut -d: -f2- | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//')
+        DESC=$(grep "^description:" "$file" 2>/dev/null | head -1 | cut -d: -f2- | sed 's/^ *//' | sed 's/^"//' | sed 's/"$//')
+        
+        case "$file" in
+            *superpowers/skills/*) SOURCE="superpowers" ;;
+            *scientific-skills/*) SOURCE="scientific-skills" ;;
+            *plugins/*) SOURCE="official" ;;
+            *) SOURCE="other" ;;
+        esac
+        
+        if echo "$NAME" | grep -qi "$QUERY"; then
+            MATCH="name"
+        elif echo "$DESC" | grep -qi "$QUERY"; then
+            MATCH="description"
+        else
+            MATCH="正文"
+        fi
+        
+        DISPLAY=$(echo "$file" | sed "s|$MARKETPLACE_EXTRACT/||" | sed 's|/SKILL.md||')
+        
+        # 计算 quality_score
+        case "$SOURCE" in
+            superpowers) SCORE=100 ;;
+            scientific-skills) SCORE=80 ;;
+            official) SCORE=60 ;;
+            *) SCORE=40 ;;
+        esac
+        
+        [ "$FIRST" = true ] && FIRST=false || echo "," >> "$TMPRESULTS"
+        echo "  {" >> "$TMPRESULTS"
+        echo "    \"name\": \"$NAME\"," >> "$TMPRESULTS"
+        echo "    \"description\": \"$DESC\"," >> "$TMPRESULTS"
+        echo "    \"source\": \"$SOURCE\"," >> "$TMPRESULTS"
+        echo "    \"match\": \"$MATCH\"," >> "$TMPRESULTS"
+        echo "    \"path\": \"$DISPLAY\"," >> "$TMPRESULTS"
+        echo "    \"quality_score\": $SCORE" >> "$TMPRESULTS"
+        echo "  }" >> "$TMPRESULTS"
+    fi
+done
+
+echo "]" >> "$TMPRESULTS"
+
+# 读取结果用于后续处理
+RESULTS=$(cat "$TMPRESULTS")
+
+# 按 quality_score 排序输出 Markdown 表格
+echo "### 检索结果（按质量排序）"
+echo ""
+echo "| 质量 | 名称 | 匹配 | 描述 | 来源 |"
+echo "|-----|------|------|------|------|"
+
+echo "$RESULTS" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    # 按 quality_score 降序，match 优先级排序
+    def sort_key(x):
+        match_priority = {'name': 0, 'description': 1, '正文': 2}
+        return (-x.get('quality_score', 0), match_priority.get(x.get('match', '正文'), 2))
+    data.sort(key=sort_key)
+    for item in data:
+        score = '⭐' * (item.get('quality_score', 0) // 25)
+        name = item.get('name', '')
+        match = item.get('match', '')
+        desc = item.get('description', '')[:60]
+        source = item.get('path', '').split('/')[0]
+        print(f'| {score} | \`{name}\` | {match} | {desc}... | {source} |')
+except:
+    pass
+"
+
+echo ""
+echo "💡 **推荐**: superpowers 来源质量最高（obra 出品，PR 94% 拒收率）"
+
+# 提供 LLM 翻译提示
+echo ""
+echo "---"
+echo "**LLM 翻译任务**：请将以上结果翻译为中文，并说明："
+echo "1. 每个 skill 的**功能**（能做什么）"
+echo "2. 每个 skill 的**价值**（解决什么问题）"
+echo "3. 多个结果时的**对比**和**选择建议**"
+echo ""
+echo "如需查看完整描述，可用："
+echo "```bash"
+echo "cat << 'EOF' | python3 -c \"import json,sys; [print(f'## {x[""name""]}\n{f\"\"来源: {x['"'"'source'\"']}\"}\n{f\"\"描述: {x['"'"'description'\"']}\"}\n\") for x in json.load(sys.stdin)]\" "
+cat "$TMPRESULTS"
+echo "EOF"
+echo "```"
+
+rm -f "$TMPRESULTS"
 ```
 
 > **clawhub.sh 已下线**：改用 `https://clawhub.ai/api/v1/search` 公开 API（无需 token，120 reads/min）。
@@ -97,6 +267,7 @@ curl -s "https://raw.githubusercontent.com/affaan-m/everything-claude-code/main/
 | Hermes 官方 | ⭐⭐⭐ | Nous Research 出品，质量最稳定 |
 | gql-skills | ⭐⭐⭐ | 内部精选，真实可用 |
 | obra/superpowers | ⭐⭐⭐ | 核心方法论，PR 94%拒收率，质量最高 |
+| skill-market | ⭐⭐ | 本地 ZIP，427个 SKILL.md，快速检索 |
 | affaan-m/everything-claude-code | ⭐⭐ | 228 skill + 60 agent，规模最大 |
 | Fission-AI/OpenSpec | ⭐⭐ | spec-driven 开发，架构严谨 |
 | ClawHub（活跃度高）| ⭐⭐ | 有统计数据 |
@@ -198,5 +369,6 @@ hermes skills install <identifier>
 | obra/superpowers | `https://github.com/obra/superpowers/tree/main/skills` |
 | Fission-AI/OpenSpec | `https://github.com/Fission-AI/OpenSpec/tree/main/openspec/specs` |
 | affaan-m/everything-claude-code | `https://github.com/affaan-m/everything-claude-code/tree/main/skills` |
-| Antigravity | `https://github.com/sickn33/antigravity-awesome-skills` |
-| Composio | `https://github.com/ComposioHQ/awesome-claude-skills` |
+| Antigravity | https://github.com/sickn33/antigravity-awesome-skills |
+| Composio | https://github.com/ComposioHQ/awesome-claude-skills |
+| skill-market | https://github.com/relunctance/skill-market |
